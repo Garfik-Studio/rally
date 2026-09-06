@@ -93,11 +93,12 @@ export async function loadRallyAppData(viewer: Viewer): Promise<RallyAppProps | 
   const membership = await prisma.userMembership.findFirst({ where: { userId: viewer.id }, include: { workspace: true }, orderBy: { createdAt: "asc" } });
   if (!membership) return null;
 
-  const currentUser = toAvatar({ id: viewer.id, name: viewer.name, email: viewer.email ?? "" });
   const [viewerRecord, notificationsRaw] = await Promise.all([
-    prisma.user.findUnique({ where: { id: viewer.id }, select: { notificationPrefs: true } }),
+    prisma.user.findUnique({ where: { id: viewer.id }, select: { name: true, notificationPrefs: true } }),
     prisma.notification.findMany({ where: { userId: viewer.id }, orderBy: { createdAt: "desc" }, take: 50 }),
   ]);
+  // Name comes from the DB, not the (possibly stale) JWT session claim, so it reflects updateProfileName immediately.
+  const currentUser = toAvatar({ id: viewer.id, name: viewerRecord?.name ?? viewer.name, email: viewer.email ?? "" });
   const notificationPrefs = (viewerRecord?.notificationPrefs as Record<string, boolean> | null) ?? null;
   const notifications: UiNotification[] = notificationsRaw.map((notification) => ({ id: notification.id, text: notification.text, time: timeAgo(notification.createdAt), read: notification.readAt !== null, taskId: notification.taskId }));
 
