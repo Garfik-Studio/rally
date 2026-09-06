@@ -1,6 +1,7 @@
 "use client";
 
 import type { UiAttachment } from "@/lib/rally-types";
+import { formatBytes } from "@/lib/attachment-format";
 import { MUTED_FG } from "./primitives";
 
 type Props = {
@@ -10,12 +11,6 @@ type Props = {
   onUpload: (file: File | null) => void;
   onDelete: (attachmentId: string) => void;
 };
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
 
 export function TaskAttachments({ attachments, isGuest, uploading, onUpload, onDelete }: Props) {
   return <div>

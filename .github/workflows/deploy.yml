@@ -1,25 +1,71 @@
-name: Deploy to Vercel
+name: Deploy to Cloud Run
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+env:
+  SERVICE: rally
+  REPOSITORY: rally
+  REGION: ${{ vars.GCP_REGION }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation — no static key checked in
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
-      - name: Deploy to Vercel
-        # Builds remotely on Vercel (not --prebuilt): Secret-type env vars like
-        # DATABASE_URL can't be pulled to a local file, so a local `vercel build`
-        # can't run `prisma migrate deploy`. A remote build gets real secrets.
-        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          gcloud builds submit \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --config=cloudbuild.yaml \
+            --substitutions="_TAG=${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }},_NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
+          flags: --min-instances=1
+          env_vars: |
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            APP_URL=${{ vars.APP_URL }}
+            AUTH_SECRET=${{ secrets.AUTH_SECRET }}
+            EMAIL_SERVER=${{ secrets.EMAIL_SERVER }}
+            EMAIL_FROM=${{ vars.EMAIL_FROM }}
+            SEED_OWNER_EMAIL=${{ vars.SEED_OWNER_EMAIL }}
+            CRON_SECRET=${{ secrets.CRON_SECRET }}
+            DUE_NOTIFY_HOUR=${{ vars.DUE_NOTIFY_HOUR }}
+            GCS_BUCKET=${{ vars.GCS_BUCKET }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}

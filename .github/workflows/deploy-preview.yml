@@ -16,9 +16,18 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Deploy preview to Vercel
-        # No --prod: deploys to Preview, picking up the dev-branch-scoped env
-        # vars (DATABASE_URL, APP_URL, AUTH_SECRET, SEED_OWNER_EMAIL). Vercel
-        # CLI reads the git branch/commit from the local checkout automatically.
+        # No --prod: deploys to Preview, picking up whatever env vars are set
+        # in the Vercel project's own dashboard (Preview scope) — DATABASE_URL,
+        # APP_URL, AUTH_SECRET, SEED_OWNER_EMAIL, GCS_BUCKET/GCS_CREDENTIALS_JSON
+        # if you want attachments to work here too (see docs/06-gcp-migration.md).
+        # Vercel CLI reads the git branch/commit from the local checkout automatically.
+        #
+        # Note: production runs on Cloud Run (server.ts, a custom Node server —
+        # see deploy.yml) so it gets real WebSocket chat delivery. Vercel can't
+        # host a custom server or hold a persistent WebSocket connection open,
+        # so on this preview deploy the app runs on plain `next start` instead
+        # and live chat push/desktop notifications won't fire — everything else
+        # (including chat itself, just without the live push) works normally.
         run: vercel deploy --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

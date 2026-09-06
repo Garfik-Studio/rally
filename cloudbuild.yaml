@@ -1,0 +1,13 @@
+# `gcloud builds submit --tag` (no build-args support) can't get
+# NEXT_PUBLIC_SENTRY_DSN into the image — see Dockerfile. This config
+# swaps in a plain `docker build --build-arg` step instead.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=NEXT_PUBLIC_SENTRY_DSN=${_NEXT_PUBLIC_SENTRY_DSN}
+      - -t
+      - ${_TAG}
+      - .
+images:
+  - ${_TAG}

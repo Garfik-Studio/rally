@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkDueDateNotifications } from "@/app/actions";
 
-// Vercel Cron fires this once daily at 08:00 UTC (see vercel.json — Hobby
-// plan only allows daily crons). DUE_NOTIFY_HOUR must match that schedule
-// hour; if you change one, change the other.
+// Cloud Scheduler fires this once daily at 08:00 UTC (see docs/06-gcp-migration.md
+// for the `gcloud scheduler jobs create http` command). DUE_NOTIFY_HOUR must
+// match that schedule hour; if you change one, change the other.
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {

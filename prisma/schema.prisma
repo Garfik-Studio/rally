@@ -285,6 +285,8 @@ model Comment {
   author User @relation(fields: [authorId], references: [id])
 }
 
+// Exactly one of taskId/messageId is set (enforced in application code, not the DB — see
+// uploadAttachment vs. postMessageWithAttachment in actions.ts).
 model Attachment {
   id           String   @id @default(cuid())
   url          String
@@ -292,11 +294,13 @@ model Attachment {
   mimeType     String
   size         Int
   createdAt    DateTime @default(now())
-  taskId       String
+  taskId       String?
+  messageId    String?
   uploadedById String
 
-  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  uploadedBy User @relation(fields: [uploadedById], references: [id])
+  task       Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  message    Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedBy User     @relation(fields: [uploadedById], references: [id])
 }
 
 // --- Chat ---
@@ -335,11 +339,12 @@ model Message {
   parentMessageId String?
   taskId          String?
 
-  channel       Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author        User      @relation(fields: [authorId], references: [id])
-  parentMessage Message?  @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  replies       Message[] @relation("MessageReplies")
-  task          Task?     @relation(fields: [taskId], references: [id])
+  channel       Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author        User         @relation(fields: [authorId], references: [id])
+  parentMessage Message?     @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies       Message[]    @relation("MessageReplies")
+  task          Task?        @relation(fields: [taskId], references: [id])
+  attachments   Attachment[]
 }
 
 // --- Guest access ---
