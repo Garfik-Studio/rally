@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { signIn } from "@/lib/auth";
 import { PasswordInput } from "@/app/components/password-field";
+import { SubmitButton } from "@/app/components/submit-button";
 
 const ACCENT = "oklch(0.68 0.16 35)";
 const BORDER = "oklch(0.9 0.006 60)";
@@ -167,8 +168,8 @@ export default async function LoginPage({
             </div>
             <PasswordInput name="password" required placeholder="••••••••" />
           </label>
-          <button
-            type="submit"
+          <SubmitButton
+            pendingText="Signing in…"
             style={{
               marginTop: 4,
               fontSize: 14,
@@ -183,7 +184,7 @@ export default async function LoginPage({
             }}
           >
             Sign in
-          </button>
+          </SubmitButton>
         </form>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -208,8 +209,8 @@ export default async function LoginPage({
               fontFamily: "inherit",
             }}
           />
-          <button
-            type="submit"
+          <SubmitButton
+            pendingText="Sending…"
             style={{
               fontSize: 14,
               fontWeight: 600,
@@ -223,7 +224,7 @@ export default async function LoginPage({
             }}
           >
             Send magic link
-          </button>
+          </SubmitButton>
         </form>
 
         <p style={{ margin: 0, fontSize: 12, color: MUTED, textAlign: "center" }}>

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { redirect } from "next/navigation";
 import { requestPasswordReset } from "@/app/actions";
+import { SubmitButton } from "@/app/components/submit-button";
 
 const ACCENT = "oklch(0.68 0.16 35)";
 const BORDER = "oklch(0.9 0.006 60)";
@@ -40,12 +41,12 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
                 style={{ fontSize: 14, padding: "10px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, outline: "none", fontFamily: "inherit" }}
               />
             </label>
-            <button
-              type="submit"
+            <SubmitButton
+              pendingText="Sending…"
               style={{ marginTop: 4, fontSize: 14, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: "none", background: ACCENT, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}
             >
               Send reset link
-            </button>
+            </SubmitButton>
           </form>
         )}
 

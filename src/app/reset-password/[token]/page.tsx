@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { resetPassword } from "@/app/actions";
 import { NewPasswordField } from "@/app/components/new-password-field";
+import { SubmitButton } from "@/app/components/submit-button";
 
 const ACCENT = "oklch(0.68 0.16 35)";
 const BORDER = "oklch(0.9 0.006 60)";
@@ -67,12 +68,12 @@ export default async function ResetPasswordPage({
           New password
           <NewPasswordField name="password" placeholder="At least 8 characters" attributes={[reset.user.name ?? "", reset.user.email]} />
         </label>
-        <button
-          type="submit"
+        <SubmitButton
+          pendingText="Resetting…"
           style={{ marginTop: 4, fontSize: 14, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: "none", background: ACCENT, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}
         >
           Reset password
-        </button>
+        </SubmitButton>
       </form>
     </Shell>
   );

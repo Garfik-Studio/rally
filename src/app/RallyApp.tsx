@@ -1918,7 +1918,7 @@ export default function RallyApp({ workspaceName, currentUser, currentUserEmail,
                           disabled={!profileNameInput.trim() || savingProfileName}
                           style={{ border: "none", background: "oklch(0.68 0.16 35)", color: "#fff", fontSize: 12.5, fontWeight: 700, padding: "0 14px", borderRadius: 8, cursor: "pointer", opacity: !profileNameInput.trim() || savingProfileName ? 0.6 : 1 }}
                         >
-                          Save
+                          {savingProfileName ? "Saving…" : "Save"}
                         </button>
                       )}
                     </div>
@@ -1971,7 +1971,7 @@ export default function RallyApp({ workspaceName, currentUser, currentUserEmail,
                           disabled={!currentPasswordInput || !newPasswordInput || savingPassword}
                           style={{ alignSelf: "flex-start", border: "none", background: "oklch(0.68 0.16 35)", color: "#fff", fontSize: 12.5, fontWeight: 700, padding: "8px 14px", borderRadius: 8, cursor: "pointer", opacity: !currentPasswordInput || !newPasswordInput || savingPassword ? 0.6 : 1 }}
                         >
-                          Update password
+                          {savingPassword ? "Updating…" : "Update password"}
                         </button>
                       </div>
                     )}
