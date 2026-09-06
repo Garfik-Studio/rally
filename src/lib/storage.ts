@@ -6,7 +6,12 @@ import { Storage } from "@google-cloud/storage";
 // Cloud Storage in prod (GCS_BUCKET set once a bucket is provisioned — see
 // docs/06-gcp-migration.md); local disk otherwise so dev needs no credentials.
 // On Cloud Run the client picks up the attached service account automatically
-// (Application Default Credentials), no key file to manage.
+// (Application Default Credentials), no key file to manage. Off GCP — the
+// Vercel-hosted preview deploy — there's no ADC metadata server, so set
+// GCS_CREDENTIALS_JSON (a service account key's JSON, verbatim) to use the
+// same bucket from there too; leave GCS_BUCKET unset there and preview just
+// falls back to local disk, which is fine for a throwaway environment but
+// won't survive across serverless invocations, so uploads are unreliable.
 // The bucket is private: /api/attachments/[id] is the only place that ever
 // reads an object and it always streams bytes through the server, so nothing
 // needs a public URL or a signed link. Keys are disambiguated by prefix:
@@ -19,7 +24,10 @@ let storageClient: Storage | undefined;
 function gcsBucket() {
   const bucket = bucketName();
   if (!bucket) throw new Error("GCS_BUCKET is not set but an attachment key points at Cloud Storage");
-  storageClient ??= new Storage();
+  if (!storageClient) {
+    const credentialsJson = process.env.GCS_CREDENTIALS_JSON;
+    storageClient = credentialsJson ? new Storage({ credentials: JSON.parse(credentialsJson) }) : new Storage();
+  }
   return storageClient.bucket(bucket);
 }
 
