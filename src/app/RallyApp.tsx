@@ -13,6 +13,7 @@ import { TaskCustomFields } from "./components/task-custom-fields";
 import { TaskDependencies } from "./components/task-dependencies";
 import { TaskAttachments } from "./components/task-attachments";
 import { TaskComments } from "./components/task-comments";
+import { PasswordInput, PasswordStrengthMeter } from "./components/password-field";
 import {
   addChecklistItem,
   addTaskAssignee,
@@ -1941,22 +1942,20 @@ export default function RallyApp({ workspaceName, currentUser, currentUserEmail,
                     </div>
                     {passwordFormOpen && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-                        <input
-                          type="password"
+                        <PasswordInput
                           value={currentPasswordInput}
                           onChange={(e) => setCurrentPasswordInput(e.target.value)}
                           placeholder="Current password"
                           style={{ boxSizing: "border-box", border: "1px solid oklch(0.88 0.006 60)", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, fontFamily: "inherit" }}
                         />
-                        <input
-                          type="password"
+                        <PasswordInput
                           value={newPasswordInput}
                           onChange={(e) => setNewPasswordInput(e.target.value)}
                           placeholder="New password"
                           style={{ boxSizing: "border-box", border: "1px solid oklch(0.88 0.006 60)", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, fontFamily: "inherit" }}
                         />
-                        <input
-                          type="password"
+                        <PasswordStrengthMeter password={newPasswordInput} attributes={[currentUser.name, currentUserEmail]} />
+                        <PasswordInput
                           value={confirmPasswordInput}
                           onChange={(e) => setConfirmPasswordInput(e.target.value)}
                           placeholder="Confirm new password"

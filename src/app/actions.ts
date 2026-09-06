@@ -8,7 +8,9 @@ import { requireEditableTask, requireListAccess } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { sendMail } from "@/lib/mailer";
 import { mentionedUserIds } from "@/lib/mentions";
-import { MAX_ATTACHMENT_BYTES, deleteAttachmentFile, saveAttachmentFile } from "@/lib/storage";
+import { ALLOWED_ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, MAX_TASK_ATTACHMENTS_BYTES, deleteAttachmentFile, saveAttachmentFile } from "@/lib/storage";
+import { validatePassword } from "@/lib/password-policy";
+import { logAudit } from "@/lib/audit";
 import {
   addChecklistItem as addChecklistItemOperation,
   addTaskAssignee as addTaskAssigneeOperation,
@@ -191,6 +193,14 @@ export async function setMemberRole(userId: string, role: "ADMIN" | "MEMBER") {
   if (!target || target.role === "OWNER" || target.role === "GUEST") throw new Error("Can't change this user's role");
 
   await prisma.userMembership.update({ where: { id: target.id }, data: { role } });
+  await logAudit({
+    workspaceId: membership.workspaceId,
+    actorId: session.user.id,
+    action: "role.changed",
+    targetType: "user",
+    targetId: userId,
+    metadata: { from: target.role, to: role },
+  });
   revalidatePath("/");
 }
 
@@ -206,6 +216,7 @@ export async function assignToSpace(spaceId: string, userId: string) {
     update: {},
     create: { userId, spaceId },
   });
+  await logAudit({ workspaceId: membership.workspaceId, actorId: session.user.id, action: "space.member_added", targetType: "space", targetId: spaceId, metadata: { userId } });
   revalidatePath("/");
 }
 
@@ -217,6 +228,7 @@ export async function removeFromSpace(spaceId: string, userId: string) {
   await assertManagesSpace(session.user.id, membership.role, spaceId);
 
   await prisma.spaceMember.deleteMany({ where: { userId, spaceId } });
+  await logAudit({ workspaceId: membership.workspaceId, actorId: session.user.id, action: "space.member_removed", targetType: "space", targetId: spaceId, metadata: { userId } });
   revalidatePath("/");
 }
 
@@ -250,7 +262,7 @@ export async function createInvite(input: { email: string; role: "ADMIN" | "MEMB
   }
 
   const token = crypto.randomBytes(32).toString("hex");
-  await prisma.invite.create({
+  const invite = await prisma.invite.create({
     data: {
       email,
       role: input.role,
@@ -275,6 +287,15 @@ export async function createInvite(input: { email: string; role: "ADMIN" | "MEMB
     console.error("Failed to send invite email", err);
   }
 
+  await logAudit({
+    workspaceId: membership.workspaceId,
+    actorId: session.user.id,
+    action: "invite.created",
+    targetType: "invite",
+    targetId: invite.id,
+    metadata: { email, role: input.role },
+  });
+
   revalidatePath("/");
   return { url };
 }
@@ -290,6 +311,14 @@ export async function revokeInvite(inviteId: string) {
   if (membership.role !== "OWNER" && invite.invitedById !== session.user.id) throw new Error("Forbidden");
 
   await prisma.invite.delete({ where: { id: inviteId } });
+  await logAudit({
+    workspaceId: membership.workspaceId,
+    actorId: session.user.id,
+    action: "invite.revoked",
+    targetType: "invite",
+    targetId: inviteId,
+    metadata: { email: invite.email, role: invite.role },
+  });
   revalidatePath("/");
 }
 
@@ -301,7 +330,7 @@ export async function acceptInvite(input: { token: string; name: string; passwor
 
   const name = input.name.trim();
   const existingUser = await prisma.user.findUnique({ where: { email: invite.email } });
-  if (!existingUser && input.password.length < 8) throw new Error("Password must be at least 8 characters");
+  if (!existingUser) validatePassword(input.password, [name, invite.email]);
 
   const user =
     existingUser ??
@@ -335,6 +364,14 @@ export async function acceptInvite(input: { token: string; name: string; passwor
   }
 
   await prisma.invite.update({ where: { id: invite.id }, data: { acceptedAt: new Date() } });
+  await logAudit({
+    workspaceId: invite.workspaceId,
+    actorId: user.id,
+    action: "invite.accepted",
+    targetType: "invite",
+    targetId: invite.id,
+    metadata: { email: invite.email, role: invite.role },
+  });
   revalidatePath("/");
 }
 
@@ -434,22 +471,46 @@ export async function removeTaskDependency(taskId: string, dependsOnId: string) 
 export async function uploadAttachment(taskId: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) return;
-  await requireEditableTask(session.user.id, taskId);
+  const access = await requireEditableTask(session.user.id, taskId);
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) throw new Error("No file provided");
-  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error("File exceeds the 20MB limit");
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error("File exceeds the 2MB per-file limit");
+  if (!ALLOWED_ATTACHMENT_TYPES.has(file.type)) throw new Error("That file type isn't allowed");
+
+  const { _sum } = await prisma.attachment.aggregate({ where: { taskId }, _sum: { size: true } });
+  if ((_sum.size ?? 0) + file.size > MAX_TASK_ATTACHMENTS_BYTES) {
+    throw new Error("This task's attachments exceed the 5MB total limit");
+  }
 
   const key = await saveAttachmentFile(file);
   await createAttachmentOperation(session.user.id, taskId, { storageKey: key, filename: file.name || "file", mimeType: file.type || "application/octet-stream", size: file.size });
+  await logAudit({
+    workspaceId: access.workspaceId,
+    actorId: session.user.id,
+    action: "attachment.uploaded",
+    targetType: "task",
+    targetId: taskId,
+    metadata: { filename: file.name, size: file.size },
+  });
   revalidatePath("/");
 }
 
 export async function deleteAttachment(attachmentId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
-  const storageKey = await deleteAttachmentOperation(session.user.id, attachmentId);
-  if (storageKey) await deleteAttachmentFile(storageKey).catch((err) => console.error("Failed to delete attachment file", err));
+  const deleted = await deleteAttachmentOperation(session.user.id, attachmentId);
+  if (deleted) {
+    await deleteAttachmentFile(deleted.url).catch((err) => console.error("Failed to delete attachment file", err));
+    await logAudit({
+      workspaceId: deleted.workspaceId,
+      actorId: session.user.id,
+      action: "attachment.deleted",
+      targetType: "attachment",
+      targetId: attachmentId,
+      metadata: { filename: deleted.filename },
+    });
+  }
   revalidatePath("/");
 }
 
@@ -463,6 +524,14 @@ export async function updateSlackWebhook(url: string) {
   if (trimmed && !trimmed.startsWith("https://hooks.slack.com/")) throw new Error("That doesn't look like a Slack incoming webhook URL");
 
   await prisma.workspace.update({ where: { id: membership.workspaceId }, data: { slackWebhookUrl: trimmed || null } });
+  await logAudit({
+    workspaceId: membership.workspaceId,
+    actorId: session.user.id,
+    action: "workspace.slack_webhook_changed",
+    targetType: "workspace",
+    targetId: membership.workspaceId,
+    metadata: { cleared: !trimmed },
+  });
   revalidatePath("/");
 }
 
@@ -537,12 +606,12 @@ export async function updateProfileName(name: string) {
 export async function updatePassword(currentPassword: string, newPassword: string) {
   const session = await auth();
   if (!session?.user?.id) return;
-  if (newPassword.length < 8) throw new Error("New password must be at least 8 characters");
 
-  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { passwordHash: true } });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { name: true, email: true, passwordHash: true } });
   if (!user?.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
     throw new Error("Current password is incorrect");
   }
+  validatePassword(newPassword, [user.name ?? "", user.email]);
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({ where: { id: session.user.id }, data: { passwordHash } });
@@ -577,9 +646,9 @@ export async function requestPasswordReset(email: string) {
 }
 
 export async function resetPassword(input: { token: string; password: string }) {
-  const reset = await prisma.passwordResetToken.findUnique({ where: { token: input.token } });
+  const reset = await prisma.passwordResetToken.findUnique({ where: { token: input.token }, include: { user: true } });
   if (!reset || reset.expiresAt < new Date()) throw new Error("This reset link is invalid or has expired.");
-  if (input.password.length < 8) throw new Error("Password must be at least 8 characters");
+  validatePassword(input.password, [reset.user.name ?? "", reset.user.email]);
 
   const passwordHash = await bcrypt.hash(input.password, 10);
   await prisma.user.update({ where: { id: reset.userId }, data: { passwordHash } });

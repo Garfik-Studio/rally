@@ -2,6 +2,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { acceptInvite } from "@/app/actions";
+import { NewPasswordField } from "@/app/components/new-password-field";
 
 const ACCENT = "oklch(0.68 0.16 35)";
 const BORDER = "oklch(0.9 0.006 60)";
@@ -97,15 +98,7 @@ export default async function InvitePage({
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: "oklch(0.35 0.01 60)" }}>
             Password
-            <input
-              name="password"
-              type="password"
-              required
-              minLength={8}
-              placeholder="At least 8 characters"
-              suppressHydrationWarning
-              style={{ fontSize: 14, padding: "10px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, outline: "none", fontFamily: "inherit" }}
-            />
+            <NewPasswordField name="password" placeholder="At least 8 characters" attributes={[invite.email]} />
           </label>
           <button
             type="submit"

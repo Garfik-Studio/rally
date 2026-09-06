@@ -212,10 +212,10 @@ export async function createAttachment(actorId: string, taskId: string, attachme
 }
 
 export async function deleteAttachment(actorId: string, attachmentId: string) {
-  const attachment = await prisma.attachment.findUnique({ where: { id: attachmentId }, select: { taskId: true, url: true } });
+  const attachment = await prisma.attachment.findUnique({ where: { id: attachmentId }, select: { taskId: true, url: true, filename: true } });
   if (!attachment) return null;
 
-  await requireEditableTask(actorId, attachment.taskId);
+  const access = await requireEditableTask(actorId, attachment.taskId);
   await prisma.attachment.delete({ where: { id: attachmentId } });
-  return attachment.url;
+  return { url: attachment.url, filename: attachment.filename, workspaceId: access.workspaceId };
 }

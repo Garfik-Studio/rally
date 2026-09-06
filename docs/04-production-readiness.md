@@ -22,15 +22,16 @@ This checklist describes what must change or be verified before Rally is deploye
 
 ### Attachments
 
-The current attachment adapter writes to the application filesystem. It is correct for one local process, but is not durable across deployments and is unsafe for multi-instance or serverless production runtimes.
+`src/lib/storage.ts` writes to Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set (Vercel sets this automatically once a Blob store is linked to the project) and falls back to the local filesystem otherwise, so local development needs no token. Object keys are server-generated (never the client filename or blob URL echoed back to other users).
 
-- Replace it with an object-store adapter (S3-compatible storage is sufficient).
-- Use server-generated object keys, preserve the existing file-size limit, and validate allowed content types before storage.
-- Serve downloads through authorization-aware application endpoints or signed, short-lived URLs; objects must not become publicly enumerable.
-- Set lifecycle, retention, backup, and deletion policies that match the team’s client and legal obligations.
+- Downloads go through `/api/attachments/[id]`, which checks list access before fetching the blob server-side and streaming it back — blob URLs are never returned to the client.
+- Per-file limit: 2MB (`MAX_ATTACHMENT_BYTES`). Per-task total: 5MB (`MAX_TASK_ATTACHMENTS_BYTES`), both enforced in `uploadAttachment` (`src/app/actions.ts`).
+- Content-type allowlist (`ALLOWED_ATTACHMENT_TYPES` in `src/lib/storage.ts`) rejects anything outside common images, PDF, text/CSV, Office formats, zip, and JSON.
+- Still open: lifecycle/retention/deletion policy matching the team's client and legal obligations.
 
 ### Email and Slack
 
+- Production email goes through Brevo's SMTP relay (`EMAIL_SERVER=smtp://<login>:<key>@smtp-relay.brevo.com:587`, see `.env.example`) — no code depends on a specific provider, any SMTP-compatible service works.
 - Use a real transactional email provider with a verified sending domain, SPF/DKIM/DMARC, rate limits, and a monitored sender address.
 - Configure a production Slack webhook through encrypted configuration and define who may change it.
 - Treat notification delivery as best effort unless delivery status, retries, and a dead-letter process are explicitly implemented. A failed email or Slack call must not roll back the user’s task or chat action.
@@ -38,13 +39,14 @@ The current attachment adapter writes to the application filesystem. It is corre
 ### Security and access
 
 - Audit every mutation and download route against the access-control rules in the architecture document, particularly guest list scoping and cross-workspace ID access.
-- Establish password requirements, account recovery expectations, and a process for revoking user access, invites, and exposed credentials.
-- Enforce HTTPS, set an appropriate content-security policy and security headers, and review cookie/session settings for the deployed domain.
-- Log security-relevant events: invite creation/revocation/acceptance, role and space-membership changes, attachment access, and administrative configuration changes. Avoid logging passwords, session tokens, invite tokens, or webhook URLs.
+- Password requirements (`src/lib/password-policy.ts`) and account recovery (`requestPasswordReset`/`resetPassword`) are implemented and tested. Still open: a process for revoking invites and exposed credentials at the org level.
+- HTTPS/CSP/security headers are implemented: `src/proxy.ts` sets a per-request nonce'd Content-Security-Policy (`strict-dynamic` script-src; `style-src` allows `'unsafe-inline'` because the app's styling convention is inline `style={{}}`, which CSP has no nonce mechanism for); `next.config.ts` sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, and `Strict-Transport-Security`. Cookie/session settings still need a pass for the actual deployed domain (Auth.js cookie `secure`/`sameSite` defaults should be fine once `APP_URL` is HTTPS, but verify after deploy).
+- Security-relevant events are logged via `logAudit` (`src/lib/audit.ts`) to the `AuditLog` table: invite creation/revocation/acceptance, role and space-membership changes, attachment upload/delete/access, and the Slack webhook change (logged as changed/cleared, never the URL value itself). No admin UI to browse this table yet — query it directly for now.
 
 ### Operations
 
-- Configure error tracking and uptime monitoring before launch.
+- Error tracking: `@sentry/nextjs` is wired (`src/instrumentation.ts`, `src/instrumentation-client.ts`, `src/sentry.server.config.ts`, `src/sentry.edge.config.ts`) and no-ops until `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` are set — create a Sentry project and set those env vars to turn it on. Source-map upload (`withSentryConfig` in `next.config.ts`) isn't wired yet since it needs an org/project slug and auth token; add it once those exist.
+- Uptime monitoring: `/api/health` checks DB connectivity and returns 503 on failure — point an external pinger (UptimeRobot, Better Stack, etc.) at it. No code left to write here, just the account/config step.
 - Capture structured server logs with a request/correlation identifier and retain them long enough to investigate incidents.
 - Monitor database health, cron execution, failed notification deliveries, and storage errors.
 - Write a short incident runbook: how to roll back an app deployment, restore the database, rotate secrets, disable a compromised user, and communicate an outage.
