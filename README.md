@@ -97,3 +97,9 @@ npx prisma migrate reset
 ```
 
 This drops all data and reapplies every migration. The next time you start the app, it will bootstrap a fresh Owner invite for whatever `SEED_OWNER_EMAIL` is set to.
+
+## Documentation
+
+This covers local development only. For architecture, feature scope, and production deployment (GCP/Cloud Run for `main`, Vercel preview for `dev`), see [docs/](docs/).
+
+Never commit a filled-in `.env` — this repo is public. Copy `.env.example`, keep real values (database URLs, secrets, API keys) in your local `.env` or your deploy platform's environment variable store only.
