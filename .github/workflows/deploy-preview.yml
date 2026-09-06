@@ -1,25 +1,70 @@
-name: Deploy Preview to Vercel
+name: Deploy Preview to Cloud Run
 
 on:
   push:
     branches: [dev]
   workflow_dispatch:
 
+env:
+  SERVICE: rally-preview
+  REPOSITORY: rally
+  REGION: ${{ vars.GCP_REGION }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: preview
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation — no static key checked in
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
 
-      - name: Deploy preview to Vercel
-        # No --prod: deploys to Preview, picking up the dev-branch-scoped env
-        # vars (DATABASE_URL, APP_URL, AUTH_SECRET, SEED_OWNER_EMAIL). Vercel
-        # CLI reads the git branch/commit from the local checkout automatically.
-        run: vercel deploy --token=${{ secrets.VERCEL_TOKEN }}
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          gcloud builds submit \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --tag="${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE }}:${{ github.sha }}
+          flags: --min-instances=0
+          env_vars: |
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            APP_URL=${{ vars.APP_URL }}
+            AUTH_SECRET=${{ secrets.AUTH_SECRET }}
+            EMAIL_SERVER=${{ secrets.EMAIL_SERVER }}
+            EMAIL_FROM=${{ vars.EMAIL_FROM }}
+            SEED_OWNER_EMAIL=${{ vars.SEED_OWNER_EMAIL }}
+            CRON_SECRET=${{ secrets.CRON_SECRET }}
+            DUE_NOTIFY_HOUR=${{ vars.DUE_NOTIFY_HOUR }}
+            GCS_BUCKET=${{ vars.GCS_BUCKET }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ vars.NEXT_PUBLIC_SENTRY_DSN }}

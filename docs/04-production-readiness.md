@@ -22,9 +22,9 @@ This checklist describes what must change or be verified before Rally is deploye
 
 ### Attachments
 
-`src/lib/storage.ts` writes to Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set (Vercel sets this automatically once a Blob store is linked to the project) and falls back to the local filesystem otherwise, so local development needs no token. Object keys are server-generated (never the client filename or blob URL echoed back to other users).
+`src/lib/storage.ts` writes to Cloud Storage when `GCS_BUCKET` is set (Cloud Run authenticates via its attached service account, no key file to manage) and falls back to the local filesystem otherwise, so local development needs no credentials. Object keys are server-generated (never the client filename or a storage URL echoed back to other users), and the bucket is private — nothing is ever served from a public or signed URL.
 
-- Downloads go through `/api/attachments/[id]`, which checks list access before fetching the blob server-side and streaming it back — blob URLs are never returned to the client.
+- Downloads go through `/api/attachments/[id]`, which checks list access before fetching the object server-side and streaming it back — storage keys are never returned to the client.
 - Per-file limit: 2MB (`MAX_ATTACHMENT_BYTES`). Per-task total: 5MB (`MAX_TASK_ATTACHMENTS_BYTES`), both enforced in `uploadAttachment` (`src/app/actions.ts`).
 - Content-type allowlist (`ALLOWED_ATTACHMENT_TYPES` in `src/lib/storage.ts`) rejects anything outside common images, PDF, text/CSV, Office formats, zip, and JSON.
 - Still open: lifecycle/retention/deletion policy matching the team's client and legal obligations.

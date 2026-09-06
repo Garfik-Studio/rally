@@ -12,13 +12,20 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const attachment = await prisma.attachment.findUnique({
     where: { id },
-    select: { url: true, filename: true, mimeType: true, task: { select: { listId: true } } },
+    select: { url: true, filename: true, mimeType: true, task: { select: { listId: true } }, message: { select: { channel: { select: { workspaceId: true, members: { select: { id: true } } } } } } },
   });
   if (!attachment) return new NextResponse("Not found", { status: 404 });
 
   let workspaceId: string;
   try {
-    workspaceId = (await requireListAccess(session.user.id, attachment.task.listId)).workspaceId;
+    if (attachment.task) {
+      workspaceId = (await requireListAccess(session.user.id, attachment.task.listId)).workspaceId;
+    } else if (attachment.message) {
+      if (!attachment.message.channel.members.some((m) => m.id === session.user.id)) throw new Error("Forbidden");
+      workspaceId = attachment.message.channel.workspaceId;
+    } else {
+      throw new Error("Orphaned attachment");
+    }
   } catch {
     return new NextResponse("Forbidden", { status: 403 });
   }

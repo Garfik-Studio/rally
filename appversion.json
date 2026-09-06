@@ -1,0 +1,24 @@
+{
+  "version": {
+    "major": 0,
+    "minor": 2,
+    "patch": 0
+  },
+  "status": {
+    "stage": null,
+    "number": 0
+  },
+  "build": {
+    "date": null,
+    "number": 0,
+    "total": 0
+  },
+  "commit": "41219b8",
+  "config": {
+    "appversion": "1.0.0",
+    "markdown": [],
+    "json": [],
+    "ignore": [],
+    "tracker": null
+  }
+}

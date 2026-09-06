@@ -12,7 +12,7 @@
 | Realtime | WebSockets (Socket.io or a managed service like Ably/Pusher) | Chat needs real real-time, unlike the task board which can tolerate polling. One realtime layer serves chat and live task updates |
 | AI | Claude API | Task summarization, subtask generation, chat draft replies (Phase 2) |
 | Notifications | Email (Resend/Postmark) + Slack incoming webhook | Both are simple API calls, no separate notification service needed |
-| Hosting | Vercel (app) + managed Postgres (Railway/Neon) | Minimal ops for a small team, scale up only if actually needed |
+| Hosting | Cloud Run (app, custom server) + managed Postgres (Neon) | Minimal ops for a small team; Cloud Run also holds the WebSocket connections chat needs — see `docs/06-gcp-migration.md` |
 
 Decision to reconsider: Socket.io vs a managed realtime service. Socket.io is free and self hosted but is another process to run and scale. A managed service (Ably/Pusher) costs money but removes the ops burden. Default to the managed service for v1, revisit if cost becomes a real issue.
 

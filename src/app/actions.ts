@@ -11,6 +11,9 @@ import { mentionedUserIds } from "@/lib/mentions";
 import { ALLOWED_ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, MAX_TASK_ATTACHMENTS_BYTES, deleteAttachmentFile, saveAttachmentFile } from "@/lib/storage";
 import { validatePassword } from "@/lib/password-policy";
 import { logAudit } from "@/lib/audit";
+import { toAvatar, timeFormatter, timeAgo, statusByDatabaseValue } from "@/lib/rally-app-data";
+import { broadcastToUsers } from "@/lib/realtime/broadcast";
+import type { StatusKey, UiMessage } from "@/lib/rally-types";
 import {
   addChecklistItem as addChecklistItemOperation,
   addTaskAssignee as addTaskAssigneeOperation,
@@ -128,7 +131,7 @@ export async function createTask(listId: string, title: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await createTaskOperation(session.user.id, listId, title);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function createSpace(name: string) {
@@ -141,7 +144,7 @@ export async function createSpace(name: string) {
   if (!membership || membership.role !== "OWNER") throw new Error("Only the owner can create spaces");
 
   await prisma.space.create({ data: { workspaceId: membership.workspaceId, name: trimmed } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function assertManagesSpace(userId: string, membershipRole: string, spaceId: string) {
@@ -176,7 +179,7 @@ export async function createList(spaceId: string, name: string, isSprint: boolea
       sprintEnd: isSprint && sprintEnd ? new Date(sprintEnd) : null,
     },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function setMemberRole(userId: string, role: "ADMIN" | "MEMBER") {
@@ -201,7 +204,7 @@ export async function setMemberRole(userId: string, role: "ADMIN" | "MEMBER") {
     targetId: userId,
     metadata: { from: target.role, to: role },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function assignToSpace(spaceId: string, userId: string) {
@@ -217,7 +220,7 @@ export async function assignToSpace(spaceId: string, userId: string) {
     create: { userId, spaceId },
   });
   await logAudit({ workspaceId: membership.workspaceId, actorId: session.user.id, action: "space.member_added", targetType: "space", targetId: spaceId, metadata: { userId } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function removeFromSpace(spaceId: string, userId: string) {
@@ -229,7 +232,7 @@ export async function removeFromSpace(spaceId: string, userId: string) {
 
   await prisma.spaceMember.deleteMany({ where: { userId, spaceId } });
   await logAudit({ workspaceId: membership.workspaceId, actorId: session.user.id, action: "space.member_removed", targetType: "space", targetId: spaceId, metadata: { userId } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -296,7 +299,7 @@ export async function createInvite(input: { email: string; role: "ADMIN" | "MEMB
     metadata: { email, role: input.role },
   });
 
-  revalidatePath("/");
+  revalidatePath("/", "layout");
   return { url };
 }
 
@@ -319,7 +322,7 @@ export async function revokeInvite(inviteId: string) {
     targetId: inviteId,
     metadata: { email: invite.email, role: invite.role },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function acceptInvite(input: { token: string; name: string; password: string }) {
@@ -372,28 +375,28 @@ export async function acceptInvite(input: { token: string; name: string; passwor
     targetId: invite.id,
     metadata: { email: invite.email, role: invite.role },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateTaskStatus(taskId: string, status: TaskStatusInput) {
   const session = await auth();
   if (!session?.user?.id) return;
   await updateTaskStatusOperation(session.user.id, taskId, status);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateTaskPriority(taskId: string, priority: TaskPriorityInput) {
   const session = await auth();
   if (!session?.user?.id) return;
   await updateTaskPriorityOperation(session.user.id, taskId, priority);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateTaskDueDate(taskId: string, dueDate: string | null) {
   const session = await auth();
   if (!session?.user?.id) return;
   await updateTaskDueDateOperation(session.user.id, taskId, dueDate);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function addTaskAssignee(taskId: string, userId: string) {
@@ -402,70 +405,70 @@ export async function addTaskAssignee(taskId: string, userId: string) {
   const taskTitle = await addTaskAssigneeOperation(session.user.id, taskId, userId);
   const actor = session.user.name ?? session.user.email ?? "Someone";
   await notify(userId, session.user.id, `${actor} assigned you to '${taskTitle}'`, taskId, "taskAssigned");
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function removeTaskAssignee(taskId: string, userId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await removeTaskAssigneeOperation(session.user.id, taskId, userId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function addChecklistItem(taskId: string, text: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await addChecklistItemOperation(session.user.id, taskId, text);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function toggleChecklistItem(itemId: string, done: boolean) {
   const session = await auth();
   if (!session?.user?.id) return;
   await toggleChecklistItemOperation(session.user.id, itemId, done);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function deleteChecklistItem(itemId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await deleteChecklistItemOperation(session.user.id, itemId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function createCustomField(listId: string, name: string, type: CustomFieldTypeInput, options: string[]) {
   const session = await auth();
   if (!session?.user?.id) return;
   await createCustomFieldOperation(session.user.id, listId, name, type, options);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function deleteCustomField(fieldId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await deleteCustomFieldOperation(session.user.id, fieldId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function setCustomFieldValue(taskId: string, customFieldId: string, value: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await setCustomFieldValueOperation(session.user.id, taskId, customFieldId, value);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function addTaskDependency(taskId: string, dependsOnId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await addTaskDependencyOperation(session.user.id, taskId, dependsOnId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function removeTaskDependency(taskId: string, dependsOnId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await removeTaskDependencyOperation(session.user.id, taskId, dependsOnId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function uploadAttachment(taskId: string, formData: FormData) {
@@ -493,7 +496,7 @@ export async function uploadAttachment(taskId: string, formData: FormData) {
     targetId: taskId,
     metadata: { filename: file.name, size: file.size },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function deleteAttachment(attachmentId: string) {
@@ -511,7 +514,7 @@ export async function deleteAttachment(attachmentId: string) {
       metadata: { filename: deleted.filename },
     });
   }
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateSlackWebhook(url: string) {
@@ -532,7 +535,7 @@ export async function updateSlackWebhook(url: string) {
     targetId: membership.workspaceId,
     metadata: { cleared: !trimmed },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function getOrCreateDirectChannel(otherUserId: string): Promise<string> {
@@ -562,7 +565,7 @@ export async function getOrCreateDirectChannel(otherUserId: string): Promise<str
     data: { workspaceId: membership.workspaceId, isDirect: true, members: { connect: [{ id: session.user.id }, { id: otherUserId }] } },
     select: { id: true },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
   return created.id;
 }
 
@@ -570,28 +573,28 @@ export async function deleteTask(taskId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await deleteTaskOperation(session.user.id, taskId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateTaskDescription(taskId: string, description: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await updateTaskDescriptionOperation(session.user.id, taskId, description);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateTaskTitle(taskId: string, title: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await updateTaskTitleOperation(session.user.id, taskId, title);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function moveTaskToList(taskId: string, listId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await moveTaskToListOperation(session.user.id, taskId, listId);
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updateProfileName(name: string) {
@@ -600,7 +603,7 @@ export async function updateProfileName(name: string) {
   const trimmed = name.trim();
   if (!trimmed) return;
   await prisma.user.update({ where: { id: session.user.id }, data: { name: trimmed } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function updatePassword(currentPassword: string, newPassword: string) {
@@ -659,7 +662,7 @@ export async function updateNotificationPrefs(prefs: Record<string, boolean>) {
   const session = await auth();
   if (!session?.user?.id) return;
   await prisma.user.update({ where: { id: session.user.id }, data: { notificationPrefs: prefs } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function markChannelRead(channelId: string) {
@@ -672,7 +675,42 @@ export async function markChannelRead(channelId: string) {
     create: { userId: session.user.id, channelId },
     update: { lastReadAt: new Date() },
   });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
+}
+
+const messageInclude = { author: { select: { id: true, name: true, email: true } }, attachments: { include: { uploadedBy: { select: { id: true, name: true, email: true } } } } } as const;
+
+type MessageWithRelations = {
+  id: string;
+  body: string;
+  createdAt: Date;
+  parentMessageId: string | null;
+  author: { id: string; name: string | null; email: string };
+  attachments: { id: string; filename: string; mimeType: string; size: number; createdAt: Date; uploadedBy: { id: string; name: string | null; email: string } }[];
+};
+
+function toUiMessage(message: MessageWithRelations): UiMessage {
+  const attachment = message.attachments[0];
+  return {
+    id: message.id,
+    author: toAvatar(message.author),
+    text: message.body,
+    time: timeFormatter.format(message.createdAt),
+    parentMessageId: message.parentMessageId,
+    attachment: attachment ? { id: attachment.id, filename: attachment.filename, mimeType: attachment.mimeType, size: attachment.size, uploadedBy: toAvatar(attachment.uploadedBy), time: timeAgo(attachment.createdAt) } : null,
+  };
+}
+
+/** Pushes a new message to every member's open tabs over the WebSocket (see server.ts) —
+ * including the sender's, so a second tab of theirs stays live too. No DB polling involved:
+ * this reuses the channel-membership row the caller already fetched to create the message. */
+function broadcastMessage(channel: { id: string; name: string | null; isDirect: boolean; members: { id: string }[] }, message: UiMessage) {
+  broadcastToUsers(channel.members.map((m) => m.id), {
+    type: "message",
+    channelId: channel.id,
+    channelName: channel.isDirect ? "a direct message" : `#${channel.name ?? "chat"}`,
+    message,
+  });
 }
 
 export async function postMessage(channelId: string, body: string, parentMessageId?: string) {
@@ -683,7 +721,7 @@ export async function postMessage(channelId: string, body: string, parentMessage
 
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
-    select: { name: true, members: { select: { id: true } } },
+    select: { name: true, isDirect: true, members: { select: { id: true } } },
   });
   if (!channel || !channel.members.some((m) => m.id === session.user.id)) throw new Error("Forbidden");
 
@@ -692,7 +730,11 @@ export async function postMessage(channelId: string, body: string, parentMessage
     if (!parent || parent.channelId !== channelId) throw new Error("Invalid thread");
   }
 
-  await prisma.message.create({ data: { channelId, authorId: session.user.id, body: trimmed, parentMessageId: parentMessageId ?? null } });
+  const message = await prisma.message.create({
+    data: { channelId, authorId: session.user.id, body: trimmed, parentMessageId: parentMessageId ?? null },
+    include: messageInclude,
+  });
+  broadcastMessage({ id: channelId, ...channel }, toUiMessage(message));
 
   const actor = session.user.name ?? session.user.email ?? "Someone";
   const memberIds = new Set(channel.members.map((m) => m.id));
@@ -701,7 +743,83 @@ export async function postMessage(channelId: string, body: string, parentMessage
     await notify(userId, session.user.id, `${actor} mentioned you in #${channel.name ?? "chat"}`, undefined, "chatMentions");
   }
 
-  revalidatePath("/");
+  revalidatePath("/", "layout");
+}
+
+export async function postMessageWithAttachment(channelId: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) return;
+  const body = String(formData.get("body") ?? "").trim();
+  const parentMessageId = (formData.get("parentMessageId") as string | null) || undefined;
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) throw new Error("No file provided");
+  if (file.size > MAX_ATTACHMENT_BYTES) throw new Error("File exceeds the 2MB per-file limit");
+  if (!ALLOWED_ATTACHMENT_TYPES.has(file.type)) throw new Error("That file type isn't allowed");
+
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    select: { name: true, isDirect: true, members: { select: { id: true } } },
+  });
+  if (!channel || !channel.members.some((m) => m.id === session.user.id)) throw new Error("Forbidden");
+
+  if (parentMessageId) {
+    const parent = await prisma.message.findUnique({ where: { id: parentMessageId }, select: { channelId: true } });
+    if (!parent || parent.channelId !== channelId) throw new Error("Invalid thread");
+  }
+
+  const key = await saveAttachmentFile(file);
+  const message = await prisma.message.create({
+    data: {
+      channelId,
+      authorId: session.user.id,
+      body,
+      parentMessageId: parentMessageId ?? null,
+      attachments: { create: { url: key, filename: file.name || "file", mimeType: file.type || "application/octet-stream", size: file.size, uploadedById: session.user.id } },
+    },
+    include: messageInclude,
+  });
+  broadcastMessage({ id: channelId, ...channel }, toUiMessage(message));
+
+  if (body) {
+    const actor = session.user.name ?? session.user.email ?? "Someone";
+    const memberIds = new Set(channel.members.map((m) => m.id));
+    const mentioned = mentionedUserIds(body).filter((id) => memberIds.has(id));
+    for (const userId of mentioned) {
+      await notify(userId, session.user.id, `${actor} mentioned you in #${channel.name ?? "chat"}`, undefined, "chatMentions");
+    }
+  }
+
+  revalidatePath("/", "layout");
+}
+
+export type TaskPreview = { id: string; title: string; status: StatusKey; spaceId: string };
+
+/** Batched title/status lookup for task links unfurled inside a chat message (`?task=<id>`).
+ * Tasks the caller can't see (wrong workspace, or a space they're not a member of) are silently
+ * dropped rather than erroring, since a chat message is free text and may reference anything. */
+export async function getTaskPreviews(taskIds: string[]): Promise<TaskPreview[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  const uniqueIds = [...new Set(taskIds)];
+  if (uniqueIds.length === 0) return [];
+
+  const membership = await myMembership(session.user.id);
+  if (!membership || membership.role === "GUEST") return [];
+
+  const tasks = await prisma.task.findMany({
+    where: { id: { in: uniqueIds } },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      list: { select: { spaceId: true, space: { select: { workspaceId: true, members: { where: { userId: session.user.id }, select: { id: true } } } } } },
+    },
+  });
+
+  return tasks
+    .filter((task) => task.list.space.workspaceId === membership.workspaceId && (membership.role === "OWNER" || task.list.space.members.length > 0))
+    .map((task) => ({ id: task.id, title: task.title, status: statusByDatabaseValue[task.status] ?? "todo", spaceId: task.list.spaceId }));
 }
 
 export async function postComment(taskId: string, body: string) {
@@ -740,19 +858,19 @@ export async function postComment(taskId: string, body: string) {
     await notify(userId, session.user.id, `${actor} mentioned you in a comment on '${task.title}'`, taskId, "comments");
   }
 
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function markNotificationRead(notificationId: string) {
   const session = await auth();
   if (!session?.user?.id) return;
   await prisma.notification.updateMany({ where: { id: notificationId, userId: session.user.id, readAt: null }, data: { readAt: new Date() } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
 
 export async function markAllNotificationsRead() {
   const session = await auth();
   if (!session?.user?.id) return;
   await prisma.notification.updateMany({ where: { userId: session.user.id, readAt: null }, data: { readAt: new Date() } });
-  revalidatePath("/");
+  revalidatePath("/", "layout");
 }
