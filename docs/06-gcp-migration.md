@@ -37,10 +37,10 @@ Move **production** compute and CI/CD off Vercel to fix latency, reduce cost, an
 
 ## Migration steps
 
-1. **Dockerize the app.** ✅ `Dockerfile` (multi-stage: `npm ci` + `prisma generate` + `next build`, then a slim runner). Entrypoint is `npm start` → `NODE_ENV=production tsx server.ts`, not `next start` and not `output: "standalone"` — the app ships its own custom Node server (`server.ts`) that wraps Next's request handler in a plain `http.Server` and adds a `ws` WebSocket server for chat's live delivery, and standalone output doesn't trace custom server files. Because `server.ts` runs via `tsx` directly, the runner stage copies the full `src/` tree, not just `.next`.
-2. **Swap attachment storage.** ✅ `src/lib/storage.ts` now branches on `GCS_BUCKET` (`@google-cloud/storage`) instead of `BLOB_READ_WRITE_TOKEN`. Same object-key generation and access-control pattern — `/api/attachments/[id]` stays the only gatekeeper, and the bucket is private (objects are always streamed through the server, never a public or signed URL).
+1. **Dockerize the app.** (done) `Dockerfile` (multi-stage: `npm ci` + `prisma generate` + `next build`, then a slim runner). Entrypoint is `npm start` → `NODE_ENV=production tsx server.ts`, not `next start` and not `output: "standalone"` — the app ships its own custom Node server (`server.ts`) that wraps Next's request handler in a plain `http.Server` and adds a `ws` WebSocket server for chat's live delivery, and standalone output doesn't trace custom server files. Because `server.ts` runs via `tsx` directly, the runner stage copies the full `src/` tree, not just `.next`.
+2. **Swap attachment storage.** (done) `src/lib/storage.ts` now branches on `GCS_BUCKET` (`@google-cloud/storage`) instead of `BLOB_READ_WRITE_TOKEN`. Same object-key generation and access-control pattern — `/api/attachments/[id]` stays the only gatekeeper, and the bucket is private (objects are always streamed through the server, never a public or signed URL).
 3. **Set up Artifact Registry and Cloud Run.** One service, `rally`, production only — `dev`/preview stays on Vercel (see Goal above), so there's no `rally-preview` Cloud Run service to run 24/7. Cloud Run supports WebSockets natively; deploys with `--min-instances=1` (already wanted for cold starts) so the one warm instance holds every open chat connection in memory with no extra pub/sub layer. If this ever needs to scale past one instance, add Redis (Memorystore) pub/sub for cross-instance broadcast first — see `src/lib/realtime/registry.ts`.
-4. **Move environment variables.** ✅ `.github/workflows/deploy.yml` and `deploy-preview.yml` set them as Cloud Run env vars at deploy time, sourced from GitHub Environment secrets/vars — same variable set as before, plus `GCS_BUCKET` replacing `BLOB_READ_WRITE_TOKEN`. See **Required GitHub configuration** below for the exact names and **one-time GCP setup** for what to provision before the first deploy.
+4. **Move environment variables.** (done) `.github/workflows/deploy.yml` and `deploy-preview.yml` set them as Cloud Run env vars at deploy time, sourced from GitHub Environment secrets/vars — same variable set as before, plus `GCS_BUCKET` replacing `BLOB_READ_WRITE_TOKEN`. See **Required GitHub configuration** below for the exact names and **one-time GCP setup** for what to provision before the first deploy.
 5. **Set up Cloud Scheduler.** HTTP job hitting `/api/cron/due-notifications` with `Authorization: Bearer $CRON_SECRET`, once daily at 08:00 UTC (matches `DUE_NOTIFY_HOUR`). `--time-zone` and `--max-retry-attempts` are pinned explicitly below rather than left on their gcloud defaults (which happen to already be UTC / no-retry) — a future CLI default change shouldn't be able to make this fire more than once a day:
    ```sh
    gcloud scheduler jobs create http rally-due-notifications \
@@ -53,7 +53,7 @@ Move **production** compute and CI/CD off Vercel to fix latency, reduce cost, an
    ```
    Three independent layers make this safe even if something ever calls the endpoint more than once in a day (a manual `curl`, a second Scheduler job created by mistake, etc.): the schedule itself only fires once/day, the route in `src/app/api/cron/due-notifications/route.ts` no-ops outside the `DUE_NOTIFY_HOUR` hour, and `checkDueDateNotifications` (`src/app/actions.ts`) checks for an existing `Notification` row for that user/task/day before sending — so a duplicate invocation can't double-notify anyone.
 6. **Map the production domain.** `rally.grafikstudio.in` → the Cloud Run service. `preview.rally.grafikstudio.in` stays pointed at Vercel, unchanged.
-7. **Rewrite the production CI workflow.** ✅ `.github/workflows/deploy.yml` (triggered on `main`) no longer touches Vercel — it runs `prisma migrate deploy`, then `gcloud builds submit` (build the Dockerfile in Cloud Build) and `google-github-actions/deploy-cloudrun`, authenticated via Workload Identity Federation (no static key checked in). `.github/workflows/deploy-preview.yml` (triggered on `dev`) is unchanged from before — still `vercel deploy`. `vercel.json`'s cron is deleted since it only ever needs to fire from production, which is now Cloud Scheduler (step 5); Vercel Cron never ran on preview deployments anyway.
+7. **Rewrite the production CI workflow.** (done) `.github/workflows/deploy.yml` (triggered on `main`) no longer touches Vercel — it runs `prisma migrate deploy`, then `gcloud builds submit` (build the Dockerfile in Cloud Build) and `google-github-actions/deploy-cloudrun`, authenticated via Workload Identity Federation (no static key checked in). `.github/workflows/deploy-preview.yml` (triggered on `dev`) is unchanged from before — still `vercel deploy`. `vercel.json`'s cron is deleted since it only ever needs to fire from production, which is now Cloud Scheduler (step 5); Vercel Cron never ran on preview deployments anyway.
 8. **Cut over production, verify, done.** No Vercel project decommissioning — it keeps serving `dev`/preview. Verify end to end on the new production domain: magic link, forgot password, attachments, cron, invite links, live chat.
 
 ## One-time GCP setup (before the first deploy)
@@ -79,11 +79,31 @@ gcloud storage buckets create "gs://${GCP_PROJECT_ID}-rally-attachments" \
   --location="$GCP_REGION" --uniform-bucket-level-access
 # → set GCS_BUCKET (GitHub var) to the bucket name above
 
-# Deploy-time service account, used by both GitHub Actions and Cloud Run itself
+# Deploy-time service account, used by both GitHub Actions and Cloud Run itself.
+# storage.admin (not just objectAdmin) is required: `gcloud builds submit`
+# auto-creates a "<project>_cloudbuild" staging bucket on first use, which
+# needs storage.buckets.create/get — objectAdmin alone 403s on that.
+# cloudbuild.builds.editor is separate from the storage roles above — it's
+# what actually lets the SA call builds.create, not just upload the source.
+# logging.viewer is what lets `gcloud builds submit` stream build logs back
+# to the CI job (see cloudbuild.yaml's CLOUD_LOGGING_ONLY comment) — without
+# it, the default GCS log bucket only streams to legacy project Viewer/Owner
+# and the command hangs ~5min before failing.
 gcloud iam service-accounts create rally-deployer --display-name="Rally deploy + runtime"
 SA="rally-deployer@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
-for role in roles/run.admin roles/artifactregistry.writer roles/iam.serviceAccountUser roles/storage.objectAdmin; do
+for role in roles/run.admin roles/artifactregistry.writer roles/iam.serviceAccountUser roles/storage.admin roles/cloudbuild.builds.editor roles/logging.viewer; do
   gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" --member="serviceAccount:$SA" --role="$role"
+done
+
+# The above only covers the identity that *calls* `gcloud builds submit`. The
+# build itself (fetching the uploaded source, running the docker build step,
+# pushing the image, writing logs) executes as the project's default Compute
+# Engine service account, not $SA — and on projects created after Google
+# stopped auto-granting it Editor, it starts with zero roles and 403s on all
+# of that.
+CB_SA="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com"
+for role in roles/storage.objectViewer roles/artifactregistry.writer roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" --member="serviceAccount:$CB_SA" --role="$role"
 done
 
 # Workload Identity Federation — lets GitHub Actions impersonate the SA with no long-lived key

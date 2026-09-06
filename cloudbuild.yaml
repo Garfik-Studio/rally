@@ -11,3 +11,9 @@ steps:
       - .
 images:
   - ${_TAG}
+options:
+  # Default GCS log bucket only streams to project Viewer/Owner (legacy
+  # primitive roles) — rally-deployer has granular roles instead, so
+  # `gcloud builds submit` 500s waiting to stream. Cloud Logging respects
+  # normal IAM (roles/logging.viewer, granted in docs/06-gcp-migration.md).
+  logging: CLOUD_LOGGING_ONLY
