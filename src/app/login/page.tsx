@@ -2,6 +2,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { signIn } from "@/lib/auth";
+import { PasswordInput } from "@/app/components/password-field";
 
 const ACCENT = "oklch(0.68 0.16 35)";
 const BORDER = "oklch(0.9 0.006 60)";
@@ -164,21 +165,7 @@ export default async function LoginPage({
                 Forgot password?
               </a>
             </div>
-            <input
-              name="password"
-              type="password"
-              required
-              placeholder="••••••••"
-              suppressHydrationWarning
-              style={{
-                fontSize: 14,
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: `1px solid ${BORDER}`,
-                outline: "none",
-                fontFamily: "inherit",
-              }}
-            />
+            <PasswordInput name="password" required placeholder="••••••••" />
           </label>
           <button
             type="submit"

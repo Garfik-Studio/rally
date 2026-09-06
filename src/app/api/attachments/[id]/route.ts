@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requireListAccess } from "@/lib/access";
 import { readAttachmentFile } from "@/lib/storage";
+import { logAudit } from "@/lib/audit";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -15,11 +16,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   });
   if (!attachment) return new NextResponse("Not found", { status: 404 });
 
+  let workspaceId: string;
   try {
-    await requireListAccess(session.user.id, attachment.task.listId);
+    workspaceId = (await requireListAccess(session.user.id, attachment.task.listId)).workspaceId;
   } catch {
     return new NextResponse("Forbidden", { status: 403 });
   }
+
+  await logAudit({ workspaceId, actorId: session.user.id, action: "attachment.accessed", targetType: "attachment", targetId: id });
 
   const buffer = await readAttachmentFile(attachment.url);
   return new NextResponse(new Uint8Array(buffer), {

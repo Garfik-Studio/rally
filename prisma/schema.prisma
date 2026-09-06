@@ -104,6 +104,7 @@ model User {
   notifications       Notification[]
   channelReads        ChannelRead[]
   passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
 }
 
 model Workspace {
@@ -118,6 +119,7 @@ model Workspace {
   channels    Channel[]
   guestShares GuestShare[]
   invites     Invite[]
+  auditLogs   AuditLog[]
 }
 
 model UserMembership {
@@ -379,6 +381,24 @@ model Invite {
   invitedBy User?     @relation("InvitesSent", fields: [invitedById], references: [id])
   space     Space?    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   list      List?     @relation(fields: [listId], references: [id], onDelete: Cascade)
+}
+
+// --- Audit trail ---
+// Security-relevant events: invite lifecycle, role/space-membership changes,
+// attachment access, admin config changes. Never store tokens or webhook URLs.
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  actorId     String?
+  action      String
+  targetType  String
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
 }
 
 model PasswordResetToken {

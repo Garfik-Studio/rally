@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "prisma migrate deploy && next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/test.ts",
+    "test:unit": "tsx --test tests/unit/**/*.test.ts",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
@@ -16,6 +18,8 @@
     "@auth/prisma-adapter": "^2.11.3",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "@sentry/nextjs": "^10.73.0",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^3.0.3",
     "next": "16.3.4",
     "next-auth": "^5.0.0-beta.32",

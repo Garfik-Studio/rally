@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rally
+          POSTGRES_PASSWORD: rally_ci_password
+          POSTGRES_DB: rally_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rally"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://rally:rally_ci_password@localhost:5432/rally_ci?schema=public
+      APP_URL: http://localhost:3000
+      AUTH_SECRET: ci-only-secret-not-used-in-production
+      EMAIL_SERVER: smtp://user:pass@localhost:1025
+      EMAIL_FROM: "Rally <no-reply@rally.local>"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
